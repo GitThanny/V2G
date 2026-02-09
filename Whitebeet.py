@@ -195,6 +195,56 @@ class Whitebeet():
         else:
             return response
 
+    def _sendReceiveFast(self, mod_id, sub_id, payload, timeout=0.2):
+        """
+        Fast version of _sendReceive with short timeout and NO RETRY.
+        Uses noisy_timeout=False to avoid AssertionError.
+        """
+        try:
+            req_id = self.framing.build_and_send_frame(mod_id, sub_id, payload)
+            response = self.framing.receive_next_frame(
+                filter_mod=[mod_id, 0xFF], 
+                filter_sub={mod_id: sub_id}, 
+                filter_req_id=req_id, 
+                timeout=timeout,
+                noisy_timeout=False,  # Don't raise exception on timeout
+                search_backlog=True
+            )
+            if response is None:
+                return None
+            elif response.mod_id == 0xFF:
+                return None
+            elif response.payload_len == 1 and response.payload[0] == 1:
+                return None  # Busy
+            return response
+        except:
+            return None
+
+    def _sendNoWait(self, mod_id, sub_id, payload):
+        """
+        Fire-and-forget send. Does not wait for response at all.
+        Use for time-critical updates where we can't afford any blocking.
+        """
+        try:
+            self.framing.build_and_send_frame(mod_id, sub_id, payload)
+            return True
+        except:
+            return False
+
+    def _sendReceiveAckFast(self, mod_id, sub_id, payload, timeout=0.3):
+        """
+        Fast version for time-critical operations. Returns True on success, False otherwise.
+        Does NOT raise exceptions - safe for tight loops.
+        """
+        response = self._sendReceiveFast(mod_id, sub_id, payload, timeout)
+        if response is None:
+            return False
+        if response.payload_len == 0:
+            return False
+        if response.payload[0] != 0:
+            return False
+        return True
+
     def _receive(self, mod_id, sub_id, req_id, timeout):
         """
         Try to receive a message with the given parameters until the timeout is reached.
@@ -1302,6 +1352,43 @@ class Whitebeet():
 
                 self._sendReceiveAck(self.v2g_mod_id, self.v2g_sub_evse_update_dc_charging_parameters, payload)
 
+    def v2gEvseUpdateDcChargingParametersFast(self, parameters):
+            """
+            FIRE-AND-FORGET version for time-critical charging loop.
+            Sends update WITHOUT waiting for response - guaranteed ~10ms.
+            Use when you need to update frequently and can't afford blocking.
+            """
+            try:
+                payload = b''
+                payload += parameters['isolation_level'].to_bytes(1, "big")
+                payload += self._valueToExponential(parameters['present_voltage'])
+                payload += self._valueToExponential(parameters['present_current'])
+                
+                if 'max_voltage' in parameters:
+                    payload += b'\x01'
+                    payload += self._valueToExponential(parameters['max_voltage'])
+                else:
+                    payload += b'\x00'
+
+                if 'max_current' in parameters:
+                    payload += b'\x01'
+                    payload += self._valueToExponential(parameters['max_current'])
+                else:
+                    payload += b'\x00'
+
+                if 'max_power' in parameters:
+                    payload += b'\x01'
+                    payload += self._valueToExponential(parameters['max_power'])
+                else:
+                    payload += b'\x00'
+                
+                payload += parameters['status'].to_bytes(1, "big")
+
+                # FIRE AND FORGET - no waiting for response!
+                return self._sendNoWait(self.v2g_mod_id, self.v2g_sub_evse_update_dc_charging_parameters, payload)
+            except:
+                return False
+
     def v2gEvseGetDCChargingParameters(self):
         """
 
@@ -2099,7 +2186,7 @@ class Whitebeet():
         sub_id_list.append(0x8F)
         sub_id_list.append(0x90)
         sub_id_list.append(0x91)
-        response = self._receiveSilent(self.v2g_mod_id, sub_id_list, [0x00, 0xFF], 0.1)
+        response = self._receiveSilent(self.v2g_mod_id, sub_id_list, [0x00, 0xFF], 0.05)  # Reduced from 0.1 to give margin for 500ms Whitebeet requirement
         if response is not None:
             return response.sub_id, response.payload
         else:
