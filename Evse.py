@@ -3,33 +3,47 @@ import gc
 import threading
 from Whitebeet import *
 from CanCharger import *
+from RelayControl import *
+from api_server import ApiServer
 
 class Evse():
-
-    def __init__(self, iftype, iface, mac):
+    def __init__(self, iftype, iface, mac, auto_authorize=False, api_port=None):
         self.whitebeet = Whitebeet(iftype, iface, mac)
         print(f"WHITE-beet-EI firmware version: {self.whitebeet.version}")
+        self.relay = RelayControl("P8_17")
+        self.relay.turn_on()
         self.CanCharger = CanCharger()
         self.schedule = None
         self.evse_config = None
+        self.auto_authorize = auto_authorize
         self.charging = False
-        self._poll_count = 0  # For debug timing logs
+        self.api_server = None
         
         # Background update thread support
+        self._poll_count = 0  # For debug timing logs
         self._update_thread = None
         self._update_running = False
         self._update_params_lock = threading.Lock()
         self._latest_charging_params = None
         self._gc_manual_collect_counter = 0
 
+
+        if api_port:
+            self.api_server = ApiServer(self, port=api_port)
+            self.api_server.start()
+
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
+        if self.api_server:
+            self.api_server.shutdown()
         if hasattr(self, "whitebeet"):
             del self.whitebeet
 
     def __del__(self):
+        if self.api_server:
+            self.api_server.shutdown()
         if hasattr(self, "whitebeet"):
             del self.whitebeet
 
@@ -84,6 +98,7 @@ class Evse():
         to answer SLAC request for the next 50s. After that we set the duty cycle on the CP to 5%
         which indicates that the EV can start with sending SLAC requests.
         """
+        self.CanCharger.start()
         print("Start SLAC matching")
         self.whitebeet.slacStartMatching()
         print("Set duty cycle to 5%")
@@ -106,6 +121,7 @@ class Evse():
         available payment options and energy transfer modes. Then we start waiting for
         notifications for requested parameters.
         """
+        self.CanCharger.start()
         print("Set V2G mode to EVSE")
         self.whitebeet.v2gSetMode(1)
 
@@ -121,7 +137,7 @@ class Evse():
         self.whitebeet.v2gEvseSetConfiguration(self.evse_config)
 
         self.dc_charging_parameters = {
-            'isolation_level': 0,
+            'isolation_level': 1,
             'min_voltage': self.CanCharger.getEvseMinVoltage(),
             'min_current': self.CanCharger.getEvseMinCurrent(),
             'max_voltage': self.CanCharger.getEvseMaxVoltage(),
@@ -144,30 +160,30 @@ class Evse():
         self.whitebeet.v2gEvseStartListen()
         while True:
             if self.charging:
+                
                 # Disable automatic GC during charging to prevent random pauses
                 if gc.isenabled():
                     gc.disable()
                     print("[GC] Automatic garbage collection disabled during charging")
-                
-                loop_start = time.time()
 
-                # ===== DEBUG TIMING: Receive =====
+                loop_start = time.time()
                 recv_start = time.time()
+                
                 id, data = self.whitebeet.v2gEvseReceiveRequestSilent()
+                
                 recv_time = (time.time() - recv_start) * 1000
 
-                # Update Whitebeet with current parameters EVERY iteration
                 charging_parameters = {
                     'isolation_level': 1,
-                    'present_voltage': int(self.CanCharger.evse_present_voltage),
-                    'present_current': int(self.CanCharger.evse_present_current) + 1,
-                    'max_voltage': int(self.CanCharger.evse_max_voltage),
-                    'max_current': int(self.CanCharger.evse_max_current),
-                    'max_power': int(self.CanCharger.evse_max_power),
+                    'present_voltage': int(self.CanCharger.getEvsePresentVoltage()),
+                    'present_current': int(self.CanCharger.getEvsePresentCurrent()),
+                    'max_voltage': int(self.CanCharger.getEvseMaxVoltage()),
+                    'max_current': int(self.CanCharger.getEvseMaxCurrent()),
+                    'max_power': int(self.CanCharger.getEvseMaxPower()),
                     'status': 0,
                 }
 
-                # ===== DEBUG TIMING: Update =====
+                                # ===== DEBUG TIMING: Update =====
                 update_start = time.time()
                 # Use FAST version - fire and forget, no waiting
                 update_ok = self.whitebeet.v2gEvseUpdateDcChargingParametersFast(charging_parameters)
@@ -193,6 +209,7 @@ class Evse():
                 
                 if total_time > 400:
                     print(f"[TIMING WARNING] Loop took {total_time:.0f}ms (should be < 500ms)")
+
             else:
                 id, data = self.whitebeet.v2gEvseReceiveRequest()
 
@@ -244,11 +261,14 @@ class Evse():
         """
         Handle the SessionStarted notification
         """
+        self.CanCharger.start()
         print("\"Session started\" received")
         message = self.whitebeet.v2gEvseParseSessionStarted(data)
         print("Protocol: {}".format(message['protocol']))
         print("Session ID: {}".format(message['session_id'].hex()))
         print("EVCC ID: {}".format(message['evcc_id'].hex()))
+        
+        time.sleep(2)
 
     def _handlePaymentSelected(self, data):
         """
@@ -262,6 +282,8 @@ class Evse():
             print("mo_sub_ca1: {}".format(message['mo_sub_ca1'].hex()))
             print("mo_sub_ca2: {}".format(message['mo_sub_ca2'].hex()))
             print("EMAID: {}".format(message['emaid'].hex()))
+            
+        time.sleep(2)
 
     def _handleRequestAuthorization(self, data):
         """
@@ -271,33 +293,36 @@ class Evse():
         print("\"Request Authorization\" received")
         message = self.whitebeet.v2gEvseParseAuthorizationStatusRequested(data)
         print(message['timeout'])
-        timeout = int(message['timeout'] / 1000) - 1
-        # Promt for authorization status
-        auth_str = input("Authorize the vehicle? Type \"yes\" or \"no\" in the next {}s: ".format(timeout))
-        auth_str = "yes"
-        if auth_str is not None and auth_str == "yes":
-            print("Vehicle was authorized by user!")
+
+        if self.auto_authorize:
+            print("Vehicle was authorized automatically via --auto flag!")
             try:
                 self.whitebeet.v2gEvseSetAuthorizationStatus(True)
             except Warning as e:
                 print("Warning: {}".format(e))
             except ConnectionError as e:
                 print("ConnectionError: {}".format(e))
-        else:
-            print("Vehicle was NOT authorized by user!")
-            try:
-                self.whitebeet.v2gEvseSetAuthorizationStatus(False)
-            except Warning as e:
-                print("Warning: {}".format(e))
-            except ConnectionError as e:
-                print("ConnectionError: {}".format(e))
+            return
+
+        timeout = int(message['timeout'] / 1000) - 1
+        # Promt for authorization status
+        auth_str = input("Authorize the vehicle? Type \"yes\" or \"no\" in the next {}s: ".format(timeout))
+        authorized = auth_str is not None and auth_str.lower() == "yes"
+
+        print(f"Vehicle was {'authorized' if authorized else 'NOT authorized'} by user!")
+        try:
+            self.whitebeet.v2gEvseSetAuthorizationStatus(authorized)
+        except (Warning, ConnectionError) as e:
+            print(f"{type(e).__name__}: {e}")
+            
+        time.sleep(2)
 
     def _handleEnergyTransferModeSelected(self, data):
         """
         Handle the energy transfer mode selected notification
         """
         print("\"Energy transfer mode selected\" received")
-        # NOTE: Don't set self.charging = True here! Wait until StartCharging is requested.
+
         message = self.whitebeet.v2gEvseParseEnergyTransferModeSelected(data)
 
         if 'departure_time' in message:        
@@ -348,6 +373,8 @@ class Evse():
                     print("Warning: {}".format(e))
                 except ConnectionError as e:
                     print("ConnectionError: {}".format(e))
+                    
+        time.sleep(0.2)
 
     def _handleRequestSchedules(self, data):
         """
@@ -364,7 +391,9 @@ class Evse():
             print("Warning: {}".format(e))
         except ConnectionError as e:
             print("ConnectionError: {}".format(e))
-
+            
+        time.sleep(0.2)
+        
     def _handleDCChargeParametersChanged(self, data):
         """
         Handle the DCChargeParametersChanged notification
@@ -403,9 +432,8 @@ class Evse():
         if 'remaining_time_to_bulk_soc' in message:
             print("Remaining time to bulk SOC: {}s".format(message['remaining_time_to_bulk_soc']))
     
-
         charging_parameters = {
-            'isolation_level': 0,
+            'isolation_level': 1,
             'present_voltage': int(self.CanCharger.getEvsePresentVoltage()),
             'present_current': int(self.CanCharger.getEvsePresentCurrent()),
             'max_voltage': int(self.CanCharger.getEvseMaxVoltage()),
@@ -455,6 +483,9 @@ class Evse():
         """
         Handle the RequestCableCheck notification
         """
+        self.charging = True
+        self.relay.turn_on()
+        self.CanCharger.start()
         print("\"Request Cable Check Status\" received")
         self.whitebeet.v2gEvseParseCableCheckRequested(data)
         try:
@@ -468,9 +499,9 @@ class Evse():
         """
         Handle the PreChargeStarted notification
         """
+        self.CanCharger.start()
         print("\"Pre Charge Started\" received")
         self.whitebeet.v2gEvseParsePreChargeStarted(data)
-        self.CanCharger.start()
 
     def _handleRequestStartCharging(self, data):
         """
@@ -497,6 +528,7 @@ class Evse():
         """
         Handle the RequestStopCharging notification
         """
+        self.relay.turn_off()
         print("\"Request Stop Charging\" received")
         message = self.whitebeet.v2gEvseParseStopChargingRequested(data)
         print('Timeout: {}'.format(message['timeout']))
@@ -520,6 +552,7 @@ class Evse():
         """
         Handle the SessionStopped notification
         """
+        self.relay.turn_off()
         self.charging = False
         print("\"Session stopped\" received")
         message = self.whitebeet.v2gEvseParseSessionStopped(data)
@@ -530,6 +563,7 @@ class Evse():
         """
         Handle the SessionError notification
         """
+        self.relay.turn_off()
         print("\"Session Error\" received")
         self.charging = False
         message = self.whitebeet.v2gEvseParseSessionError(data)
@@ -584,27 +618,6 @@ class Evse():
         status = 2
         certificationResponse = []
 
-        '''startTime = time.time_ns() / 1000
-        
-        if self.certificateApi.isRunning:
-            try:
-                certificationResponse = self.certificateApi.generateResponse(message['exi_request'])
-                currentTime = time.time_ns() / 1000
-                status = 0
-            except (Exception, KeyboardInterrupt):
-                self.certificateApi.terminateAllProcesses()
-        
-        if currentTime > (startTime + message['timeout']):
-            status = 1
-            certificationResponse = []
-
-        try:
-            self.whitebeet.v2gEvseSetCertificateInstallationAndUpdateResponse(status, certificationResponse)
-        except Warning as e:
-            print("Warning: {}".format(e))
-        except ConnectionError as e:
-            print("ConnectionError: {}".format(e))'''
-
     def _handleCertificateUpdateRequested(self, data):
         """
         Handle the CertificateUpdateRequested notification
@@ -616,27 +629,6 @@ class Evse():
 
         status = 2
         certificationResponse = []
-
-        '''startTime = time.time_ns() / 1000
-        
-        if self.certificateApi.isRunning:
-            try:
-                certificationResponse = self.certificateApi.generateResponse(message['exi_request'])
-                currentTime = time.time_ns() / 1000
-                status = 0
-            except (Exception, KeyboardInterrupt):
-                self.certificateApi.terminateAllProcesses()
-        
-        if currentTime > (startTime + message['timeout']):
-            status = 1
-            certificationResponse = []
-
-        try:
-            self.whitebeet.v2gEvseSetCertificateInstallationAndUpdateResponse(status, certificationResponse)
-        except Warning as e:
-            print("Warning: {}".format(e))
-        except ConnectionError as e:
-            print("ConnectionError: {}".format(e))'''
             
     def _handleMeteringReceiptStatus(self, data):
         """
@@ -684,4 +676,3 @@ class Evse():
             return self._handleEvConnected()
         else:
             return False
-
