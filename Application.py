@@ -91,23 +91,23 @@ if __name__ == "__main__":
 
 
         with Evse(args.interface_type, args.interface, evse_mac, auto_authorize=args.auto) as evse:
-            if evse_config_data and 'CanCharger' in evse_config_data:
-                CanCharger_config = evse_config_data['CanCharger']
-                evse.getCanCharger().setEvseDeltaVoltage(CanCharger_config.get('delta_voltage', 0.5))
-                evse.getCanCharger().setEvseDeltaCurrent(CanCharger_config.get('delta_current', 0.05))
-                evse.getCanCharger().setEvseMaxVoltage(CanCharger_config.get('max_voltage', 100))
-                evse.getCanCharger().setEvseMaxCurrent(CanCharger_config.get('max_current', 1))
-                evse.getCanCharger().setEvseMaxPower(CanCharger_config.get('max_power', 25000))
+            if evse_config_data and 'CanPhoenix' in evse_config_data:
+                CanPhoenix_config = evse_config_data['CanPhoenix']
+                evse.getCanPhoenix().setEvseDeltaVoltage(CanPhoenix_config.get('delta_voltage', 0.5))
+                evse.getCanPhoenix().setEvseDeltaCurrent(CanPhoenix_config.get('delta_current', 0.05))
+                evse.getCanPhoenix().setEvseMaxVoltage(CanPhoenix_config.get('max_voltage', 400))
+                evse.getCanPhoenix().setEvseMaxCurrent(CanPhoenix_config.get('max_current', 1))
+                evse.getCanPhoenix().setEvseMaxPower(CanPhoenix_config.get('max_power', 25000))
             else:
-                # Default CanCharger parameters
-                evse.getCanCharger().setEvseDeltaVoltage(0.5)
-                evse.getCanCharger().setEvseDeltaCurrent(0.05)
-                evse.getCanCharger().setEvseMaxVoltage(100)
-                evse.getCanCharger().setEvseMaxCurrent(1)
-                evse.getCanCharger().setEvseMaxPower(25000)
+                # Default CanPhoenix parameters
+                evse.getCanPhoenix().setEvseDeltaVoltage(0.5)
+                evse.getCanPhoenix().setEvseDeltaCurrent(0.05)
+                evse.getCanPhoenix().setEvseMaxVoltage(400)
+                evse.getCanPhoenix().setEvseMaxCurrent(1)
+                evse.getCanPhoenix().setEvseMaxPower(25000)
 
-            # Start the CanCharger
-            evse.getCanCharger().start()
+            # Start the CanPhoenix
+            evse.getCanPhoenix().start()
 
             if evse_config_data and 'schedule' in evse_config_data:
                 schedule = evse_config_data['schedule']
@@ -145,4 +145,4 @@ if __name__ == "__main__":
             print("EVSE loop finished")
 
     print("Goodbye!")
-
+    
