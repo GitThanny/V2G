@@ -389,7 +389,7 @@ if __name__ == "__main__":
         print("STEP 6: Setting Discharge Targets: 200V, -10.0A")
         charger.setEvTargetVoltage(200.0)
         time.sleep(0.2)
-        charger.setEvTargetCurrent(-10.0) # NEGATIVE CURRENT = DISCHARGE
+        charger.setEvTargetCurrent(10.0) # NEGATIVE CURRENT = DISCHARGE
         
         print("\nV2G Active. Monitoring NIUERA present values for 10 seconds...")
         for i in range(10):
