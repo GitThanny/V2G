@@ -355,7 +355,7 @@ if __name__ == "__main__":
     
     try:
         # 1. Initialize Charger
-        charger = CanPhoenix(interface='socketcan', channel='can0', bitrate=125000)
+        charger = CanPhoenix(interface='virtual', channel='vcan0')
         
         print("\n=== INITIATING PHOENIX CONTACT V2G SEQUENCE ===")
         
