@@ -6,7 +6,7 @@ from CanPhoenix import *
 
 class Evse_Pi():
     def __init__(self, iftype, iface, mac, auto_authorize=False):
-        self.whitebeet = Whitebeet(iftype, iface, mac)
+        self.whitebeet = Whitebeet_Pi(iftype, iface, mac)
         print(f"WHITE-beet-EI firmware version: {self.whitebeet.version}")
         
         self.CanPhoenix = CanPhoenix()
