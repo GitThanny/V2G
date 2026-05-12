@@ -4,7 +4,7 @@
 import time
 import struct
 from Logger import *
-from FramingInterface import *
+from FramingInterface_Pi import *
 
 class Whitebeet_Pi():
 
@@ -98,7 +98,7 @@ class Whitebeet_Pi():
         self.v2g_sub_evse_set_session_parameter_timeout = 0x76
 
         # Initialization of the framing interface
-        self.framing = FramingInterface()
+        self.framing = FramingInterface_Pi()
         iftype = iftype.upper()
 
         try:
