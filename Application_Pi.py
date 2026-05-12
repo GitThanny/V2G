@@ -13,7 +13,7 @@ sudo ip link set can2 down
 source .venv/bin/activate
 '''
 
-from Evse import *
+from Evse_Pi import *
 from Ev import *
 
 if __name__ == "__main__":
