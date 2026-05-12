@@ -4,7 +4,7 @@ import threading
 from Whitebeet import *
 from CanPhoenix import *
 
-class Evse():
+class Evse_Pi():
     def __init__(self, iftype, iface, mac, auto_authorize=False):
         self.whitebeet = Whitebeet(iftype, iface, mac)
         print(f"WHITE-beet-EI firmware version: {self.whitebeet.version}")
