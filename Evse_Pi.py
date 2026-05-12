@@ -1,7 +1,7 @@
 import time
 import gc
 import threading
-from Whitebeet import *
+from Whitebeet_Pi import *
 from CanPhoenix import *
 
 class Evse_Pi():
