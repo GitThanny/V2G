@@ -95,7 +95,7 @@ if __name__ == "__main__":
                 print(f"Error decoding {args.evse_config}. The file is likely malformed. Using default EVSE configuration.")
                 evse_config_data = None 
 
-        with Evse(args.interface_type, args.interface, evse_mac, auto_authorize=args.auto) as evse:
+        with Evse_Pi(args.interface_type, args.interface, evse_mac, auto_authorize=args.auto) as evse:
             
             # Setup CanPhoenix Hardware Limits
             if evse_config_data and 'CanPhoenix' in evse_config_data:
