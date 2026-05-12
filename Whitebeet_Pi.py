@@ -6,7 +6,7 @@ import struct
 from Logger import *
 from FramingInterface import *
 
-class Whitebeet():
+class Whitebeet_Pi():
 
     def __init__(self, iftype, iface, mac):
         self.logger = Logger()
