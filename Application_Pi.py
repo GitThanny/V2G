@@ -14,7 +14,7 @@ source .venv/bin/activate
 '''
 
 from Evse_Pi import *
-from Ev import *
+from Ev_Pi import *
 
 if __name__ == "__main__":
     WHITEBEET_DEFAULT_MAC = "00:01:01:63:77:33"
