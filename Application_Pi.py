@@ -65,7 +65,7 @@ if __name__ == "__main__":
             print("Error: A MAC address must be provided for an ethernet interface via command line (-m) or a config file (-c).")
             sys.exit(1)
 
-        with Ev(args.interface_type, args.interface, mac) as ev:
+        with Ev_Pi(args.interface_type, args.interface, mac) as ev:
             # Apply config to ev
             if config is not None:
                 print("EV configuration: " + str(config))
